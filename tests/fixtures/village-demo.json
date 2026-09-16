@@ -1,0 +1,24 @@
+{
+  "tag": "#DEMO123",
+  "timestamp": 1700000000,
+  "helpers": [{"data": 124000001, "lvl": 1, "helper_cooldown": 600}],
+  "buildings": [
+    {"data": 1000008, "lvl": 1, "timer": 120},
+    {"data": 1000011, "lvl": 1, "timer": 180},
+    {"data": 1000007, "lvl": 1, "timer": 240},
+    {"data": 1000068, "lvl": 1, "timer": 300},
+    {"data": 1000000, "lvl": 1, "timer": 720}
+  ],
+  "traps": [],
+  "units": [{"data": 4000011, "lvl": 1, "timer": 360}],
+  "heroes": [{"data": 28000000, "lvl": 1, "timer": 420}],
+  "spells": [],
+  "pets": [{"data": 73000009, "lvl": 1, "timer": 60}],
+  "buildings2": [
+    {"data": 1000041, "lvl": 1, "timer": 480},
+    {"data": 1000057, "lvl": 1, "timer": 540}
+  ],
+  "units2": [{"data": 4000032, "lvl": 1, "timer": 600}],
+  "heroes2": [{"data": 28000005, "lvl": 1, "timer": 660}],
+  "boosts": {"clocktower_cooldown": 300}
+}
