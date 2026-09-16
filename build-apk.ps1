@@ -25,7 +25,7 @@ Run-Checked "$buildTools\aapt2.exe" @('compile','--dir',"$projectRoot\app\src\ma
 $manifest = [xml](Get-Content -LiteralPath "$projectRoot\app\src\main\AndroidManifest.xml" -Raw)
 $manifest.DocumentElement.SetAttribute('package','cn.villagebell')
 $manifest.Save("$outputRoot\AndroidManifest.xml")
-Run-Checked "$buildTools\aapt2.exe" @('link','-o',"$outputRoot\unsigned.apk",'-I',$androidJar,'--manifest',"$outputRoot\AndroidManifest.xml",'--java',"$outputRoot\generated",'--min-sdk-version','26','--target-sdk-version','35','--version-code','1','--version-name','0.1.0',"$outputRoot\resources.zip")
+Run-Checked "$buildTools\aapt2.exe" @('link','-o',"$outputRoot\unsigned.apk",'-I',$androidJar,'--manifest',"$outputRoot\AndroidManifest.xml",'--java',"$outputRoot\generated",'--min-sdk-version','26','--target-sdk-version','35','--version-code','2','--version-name','0.2.0',"$outputRoot\resources.zip")
 $sources = @(Get-ChildItem -LiteralPath "$projectRoot\app\src\main\java" -Recurse -Filter '*.java') + @(Get-ChildItem -LiteralPath "$outputRoot\generated" -Recurse -Filter '*.java')
 $sourceLines = $sources | ForEach-Object { '"' + $_.FullName.Replace('\','/') + '"' }
 [IO.File]::WriteAllLines("$outputRoot\sources.txt", [string[]]$sourceLines, [Text.UTF8Encoding]::new($false))
@@ -38,7 +38,7 @@ $keyFile = Join-Path $toolRoot 'development.keystore'
 if (!(Test-Path -LiteralPath $keyFile)) {
     Run-Checked "$JavaHome\bin\keytool.exe" @('-genkeypair','-keystore',$keyFile,'-storepass','android','-keypass','android','-alias','villagebell','-keyalg','RSA','-keysize','2048','-validity','10000','-dname','CN=Village Bell Development')
 }
-$apk = Join-Path $distRoot 'village-bell-0.1.0.apk'
+$apk = Join-Path $distRoot 'village-bell-0.2.0.apk'
 Run-Checked "$JavaHome\bin\java.exe" @('-jar',"$buildTools\lib\apksigner.jar",'sign','--ks',$keyFile,'--ks-key-alias','villagebell','--ks-pass','pass:android','--key-pass','pass:android','--out',$apk,"$outputRoot\aligned.apk")
 Run-Checked "$JavaHome\bin\java.exe" @('-jar',"$buildTools\lib\apksigner.jar",'verify','--verbose',$apk)
 (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash | Set-Content -LiteralPath "$apk.sha256" -Encoding ascii

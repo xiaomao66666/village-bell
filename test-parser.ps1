@@ -15,9 +15,11 @@ if ((Get-FileHash -LiteralPath $jar -Algorithm SHA256).Hash -ne '3EA61B2A06E31ED
 }
 $out = Join-Path $root 'build\tests'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
-& "$JavaHome\bin\javac.exe" --release 8 -encoding UTF-8 -cp $jar -d $out "$root\app\src\main\java\cn\villagebell\Village.java" "$root\tests\ParserTest.java"
+& "$JavaHome\bin\javac.exe" --release 8 -encoding UTF-8 -cp $jar -d $out "$root\app\src\main\java\cn\villagebell\Village.java" "$root\app\src\main\java\cn\villagebell\Dashboard.java" "$root\tests\ParserTest.java" "$root\tests\DashboardTest.java"
 if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
 $arguments = @('-cp',"$jar;$out",'ParserTest',"$root\tests\fixtures\village-demo.json")
 if ($SamplePath) { $arguments += (Resolve-Path -LiteralPath $SamplePath).Path }
 & "$JavaHome\bin\java.exe" @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Parser tests failed' }
+& "$JavaHome\bin\java.exe" -cp "$jar;$out" DashboardTest
+if ($LASTEXITCODE -ne 0) { throw 'Dashboard tests failed' }
