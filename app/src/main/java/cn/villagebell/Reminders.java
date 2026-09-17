@@ -36,9 +36,14 @@ final class Reminders {
     static String schedule(Context c) {
         cancel(c);
         State state=new State(c);
+        VillageWidget.updateAll(c);
         if(state.village==null||!state.enabled||state.village.timingUncertain||!allowed(c)) return "";
         long next=Long.MAX_VALUE;
-        for(Village.Upgrade u:state.village.upgrades) if(state.eligible(u)) next=Math.min(next,u.endMillis);
+        long now=System.currentTimeMillis();
+        for(Village.Upgrade u:state.village.upgrades) if(state.eligible(u)) {
+            next=Math.min(next,ReminderTime.deliveryTime(u.endMillis,now,state.quiet,state.quietStart,state.quietEnd,TimeZone.getDefault()));
+            if(!state.earlyDelivered.contains(u.key))next=Math.min(next,ReminderTime.earlyTime(u,state.advanceMinutes,now,state.quiet,state.quietStart,state.quietEnd,TimeZone.getDefault()));
+        }
         if(next==Long.MAX_VALUE) return "";
         try { set(c,Math.max(System.currentTimeMillis()+1000,next),intent(c,state.village.revision(),false)); return ""; }
         catch(RuntimeException e) { return "系统未能安排提醒，请检查闹钟权限后重试。"; }
@@ -63,12 +68,17 @@ final class Reminders {
         if(!allowed(c)) return;
         List<String> lines=new ArrayList<>();
         long now=System.currentTimeMillis();
+        if(ReminderTime.deliveryTime(now,now,s.quiet,s.quietStart,s.quietEnd,TimeZone.getDefault())>now){schedule(c);return;}
         for(Village.Upgrade u:s.village.upgrades) {
-            if(s.eligible(u)&&u.endMillis<=now) { lines.add(u.name+" · "+u.group()); s.delivered.add(u.key); }
+            if(!s.eligible(u))continue;
+            if(u.endMillis<=now) { lines.add("预计已完成 · "+u.name); s.delivered.add(u.key); }
+            else if(!s.earlyDelivered.contains(u.key)&&s.advanceMinutes>0&&u.endMillis-s.advanceMinutes*60000L<=now){
+                lines.add("约 "+Math.max(1,(u.endMillis-now+59999)/60000)+" 分钟后 · "+u.name);s.earlyDelivered.add(u.key);
+            }
         }
         if(!lines.isEmpty()) {
             try {
-                show(c,NOTIFICATION_ID,CHANNEL,lines.size()==1?"预计升级完成 · "+lines.get(0):lines.size()+" 项升级预计已完成",
+                show(c,NOTIFICATION_ID,CHANNEL,lines.size()==1?lines.get(0):lines.size()+" 项村庄升级提醒",
                     "按上次导出计时，请进入游戏确认并安排下一项升级。",lines);
                 s.save();
             } catch(SecurityException ignored) { return; }

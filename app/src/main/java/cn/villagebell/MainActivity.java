@@ -26,6 +26,8 @@ public final class MainActivity extends Activity {
     private int page=0;
     private String filter="全部";
     private int listMode=0;
+    private String query="";
+    private boolean hideCompleted=false, todayOnly=false;
     private Village demo;
     private ScrollView scroll;
     private View taskAnchor;
@@ -46,15 +48,18 @@ public final class MainActivity extends Activity {
     };
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved); Reminders.channels(this);
+        query=getPreferences(0).getString("query","");hideCompleted=getPreferences(0).getBoolean("hideCompleted",false);todayOnly=getPreferences(0).getBoolean("todayOnly",false);
         if(saved!=null) { page=saved.getInt("page"); filter=saved.getString("filter","全部");listMode=saved.getInt("listMode");if(saved.getBoolean("demo"))demo=createDemo(); }
         render(); handleIntent(getIntent());
     }
     @Override protected void onResume() { super.onResume(); foreground=true; String problem=Reminders.schedule(this); render(); handler.removeCallbacks(ticker); handler.post(ticker); if(!problem.isEmpty()) toast(problem); }
-    @Override protected void onPause() { foreground=false; handler.removeCallbacks(ticker); super.onPause(); }
+    @Override protected void onPause() { foreground=false; handler.removeCallbacks(ticker);getPreferences(0).edit().putString("query",query).putBoolean("hideCompleted",hideCompleted).putBoolean("todayOnly",todayOnly).apply(); super.onPause(); }
     @Override protected void onDestroy() { io.shutdownNow(); super.onDestroy(); }
     @Override public void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); out.putInt("page",page); out.putString("filter",filter);out.putInt("listMode",listMode);out.putBoolean("demo",demo!=null); }
     @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); handleIntent(i); }
     private void handleIntent(Intent i) {
+        if("widget-sync".equals(i.getAction())){i.setAction(null);page=0;render();importDialog();return;}
+        if("widget-open".equals(i.getAction())){i.setAction(null);page=0;render();return;}
         if(!Intent.ACTION_SEND.equals(i.getAction()))return;
         String text=i.getStringExtra(Intent.EXTRA_TEXT);
         Uri uri=i.getParcelableExtra(Intent.EXTRA_STREAM);
@@ -63,12 +68,13 @@ public final class MainActivity extends Activity {
     }
     private void render() {
         state=new State(this); countdowns.clear();progressViews.clear();nextMilestone=Long.MAX_VALUE;
+        Calendar midnight=Calendar.getInstance();midnight.add(Calendar.DATE,1);midnight.set(Calendar.HOUR_OF_DAY,0);midnight.set(Calendar.MINUTE,0);midnight.set(Calendar.SECOND,0);midnight.set(Calendar.MILLISECOND,0);nextMilestone=midnight.getTimeInMillis();
         Village shown=demo!=null?demo:state.village;if(shown!=null)for(Village.Upgrade u:shown.upgrades)if(u.endMillis>System.currentTimeMillis())nextMilestone=Math.min(nextMilestone,u.endMillis);
         root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((v,insets)-> { v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom()); return insets; });
         setContentView(root); root.requestApplyInsets();
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(dp(20),dp(10),dp(20),dp(12));
-        GameArt emblem=new GameArt(this,GameArt.BELL);header.addView(emblem,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        ImageView emblem=new ImageView(this);emblem.setImageResource(R.mipmap.ic_launcher);header.addView(emblem,new LinearLayout.LayoutParams(dp(42),dp(42)));
         LinearLayout titles=column();titles.setPadding(dp(10),0,0,0);titles.addView(text("村庄铃铛",23,TEXT,true));titles.addView(text("VILLAGE BELL",10,MUTED,false));header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
         TextView badge=text("离线助手",11,GREEN,true);badge.setPadding(dp(9),dp(5),dp(9),dp(5));badge.setBackground(shape(0xffe5eddc,8));header.addView(badge);root.addView(header);
         scroll=new ScrollView(this); scroll.setFillViewport(true);scroll.setClipToPadding(false);
@@ -102,6 +108,7 @@ public final class MainActivity extends Activity {
         LinearLayout villageHeader=new LinearLayout(this);villageHeader.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout who=column();who.addView(text("我的村庄",26,TEXT,true));who.addView(text(v.tag+"  ·  "+format(v.timestamp*1000L)+" 同步",11,MUTED,false));villageHeader.addView(who,new LinearLayout.LayoutParams(0,-2,1));
         villageHeader.addView(button("↻ 同步",false,this::importDialog));content.addView(villageHeader);gap(content,14);
+        if(demo==null){long age=Math.max(0,(now-v.timestamp*1000L)/3600000L);TextView freshness=text(age>=24?"距上次导出已过 "+age+" 小时 · 有新升级或使用加速后请重新同步":"依据最近一次导出计时 · 游戏内变化需重新同步",11,age>=24?GOLD:MUTED,false);content.addView(freshness);gap(content,12);}
         LinearLayout scene=column();scene.setBackground(shape(0xffe5edd7,20));scene.setClipToOutline(true);
         scene.addView(new GameArt(this,GameArt.VILLAGE),new LinearLayout.LayoutParams(-1,dp(180)));
         LinearLayout stats=new LinearLayout(this);stats.setPadding(dp(12),0,dp(12),dp(12));
@@ -112,7 +119,7 @@ public final class MainActivity extends Activity {
             copy.addView(text(next.name,22,0xfffff8e7,true));TextView time=text(remaining(next.endMillis),20,0xfff1d795,true);countdowns.put(time,next);copy.addView(time);gap(copy,7);
             copy.addView(text(format(next.endMillis)+" 预计完成",12,0xffd9e6cc,false));
         }else{copy.addView(text("这一轮等待结束了",23,0xfffff8e7,true));gap(copy,8);copy.addView(text("回游戏安排下一项，再同步回来。",13,0xffd9e6cc,false));}
-        top.addView(copy,new LinearLayout.LayoutParams(0,-2,1));top.addView(new GameArt(this,next==null?GameArt.CROWN:artKind(next)),new LinearLayout.LayoutParams(dp(70),dp(70)));hero.addView(top);content.addView(hero);gap(content,20);
+        top.addView(copy,new LinearLayout.LayoutParams(0,-2,1));top.addView(next==null?new GameArt(this,GameArt.CROWN):GameIcons.view(this,next,artKind(next)),new LinearLayout.LayoutParams(dp(86),dp(86)));hero.addView(top);content.addView(hero);gap(content,20);
         section("升级分区","点击分区筛选任务");
         String[] groups={"建筑与英雄","研究","战宠","夜世界"};int[] kinds={GameArt.BUILDING,GameArt.RESEARCH,GameArt.PET,GameArt.NIGHT};
         for(int i=0;i<2;i++){LinearLayout row=new LinearLayout(this);for(int j=0;j<2;j++){int k=i*2+j;String g=groups[k];LinearLayout tile=card();tile.setPadding(dp(12),dp(10),dp(12),dp(10));tile.setBackground(outline(g.equals(filter)?0xffe8efdf:PANEL,g.equals(filter)?GREEN:0xffe4dece,16));
@@ -126,6 +133,10 @@ public final class MainActivity extends Activity {
         }
         taskAnchor=new View(this);content.addView(taskAnchor,new LinearLayout.LayoutParams(1,1));
         section("升级日志",v.timingUncertain?"基础预计时间 · 未校正加速":"按预计完成时间排序");
+        LinearLayout searchRow=new LinearLayout(this);searchRow.addView(button(query.isEmpty()?"⌕ 搜索升级项目":"搜索："+query,false,this::searchDialog),new LinearLayout.LayoutParams(0,-2,1));
+        if(!query.isEmpty())searchRow.addView(button("清除",false,()->{query="";refreshTasks();}));content.addView(searchRow);gap(content,8);
+        LinearLayout options=new LinearLayout(this);CheckBox hide=new CheckBox(this);hide.setText("隐藏已完成");hide.setTextSize(12);hide.setTextColor(MUTED);hide.setChecked(hideCompleted);hide.setOnCheckedChangeListener((b,on)->{hideCompleted=on;refreshTasks();});options.addView(hide,new LinearLayout.LayoutParams(0,-2,1));
+        CheckBox today=new CheckBox(this);today.setText("只看今天");today.setTextSize(12);today.setTextColor(MUTED);today.setChecked(todayOnly);today.setOnCheckedChangeListener((b,on)->{todayOnly=on;refreshTasks();});options.addView(today,new LinearLayout.LayoutParams(0,-2,1));content.addView(options);gap(content,8);
         LinearLayout modes=new LinearLayout(this);modes.setBackground(shape(0xffe9e4d7,12));modes.setPadding(dp(4),dp(4),dp(4),dp(4));
         for(int i=0;i<2;i++){final int mode=i;Button b=button(i==0?"任务卡片":"完成时间轴",false,()->{int y=scroll.getScrollY();listMode=mode;render();scroll.post(()->scroll.scrollTo(0,y));});b.setTextColor(listMode==i?GREEN:MUTED);b.setBackground(shape(listMode==i?PANEL:0xffe9e4d7,10));modes.addView(b,new LinearLayout.LayoutParams(0,dp(44),1));}content.addView(modes);gap(content,10);
         HorizontalScrollView filters=new HorizontalScrollView(this); filters.setHorizontalScrollBarEnabled(false);
@@ -135,16 +146,16 @@ public final class MainActivity extends Activity {
         filters.addView(chips); content.addView(filters); gap(content,10);
         int count=0;String previousDay="";
         java.util.List<Village.Upgrade> ordered=new ArrayList<>();for(Village.Upgrade u:v.upgrades)if(u.endMillis>now)ordered.add(u);for(Village.Upgrade u:v.upgrades)if(u.endMillis<=now)ordered.add(u);
-        for(Village.Upgrade u:ordered)if(filter.equals("全部")||filter.equals(u.group())){
+        for(Village.Upgrade u:ordered)if(Dashboard.matches(u,filter,query,hideCompleted,todayOnly,now,TimeZone.getDefault())){
             if(listMode==1){String day=u.endMillis<=now?"预计已完成":new SimpleDateFormat("MM月dd日 EEEE",Locale.CHINA).format(new Date(u.endMillis));if(!day.equals(previousDay)){gap(content,10);content.addView(text("●  "+day,15,GREEN,true));gap(content,8);previousDay=day;}timelineCard(u,now);}else upgradeCard(u,now);count++;
         }
-        if(count==0) notice("这份数据中没有该类别的升级任务。");
-        gap(content,8);content.addView(text("插画为示意村庄，不代表实际阵型。进度条以同步时的剩余等待为起点；实际完成状态请在游戏中确认。",11,MUTED,false));
+        if(count==0){notice("没有符合当前条件的任务，试试清除搜索或筛选。");content.addView(button("重置全部筛选",false,()->{query="";filter="全部";hideCompleted=false;todayOnly=false;refreshTasks();}));}
+        gap(content,8);content.addView(text("建筑图片匹配导出等级；未收录的等级显示通用图标。图源 ClashKing，游戏素材 © Supercell，本工具非官方且未经 Supercell 认可。插画不代表实际阵型，进度条表示同步后的等待进度。",11,MUTED,false));
     }
     private void upgradeCard(Village.Upgrade u,long now) {
         LinearLayout box=card();
         LinearLayout row=new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL);
-        GameArt icon=new GameArt(this,artKind(u));icon.setBackground(shape(tint(u.group()),13));LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(55),dp(55));iconLp.rightMargin=dp(12);row.addView(icon,iconLp);
+        View icon=GameIcons.view(this,u,artKind(u));icon.setBackground(shape(tint(u.group()),13));LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(70),dp(70));iconLp.rightMargin=dp(10);row.addView(icon,iconLp);
         LinearLayout label=column(); label.addView(text(u.name,17,TEXT,true)); label.addView(text(u.group()+"  ·  Lv."+u.level,11,MUTED,false));
         row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         Switch sw=new Switch(this); sw.setContentDescription(u.name+"的完成提醒");
@@ -155,13 +166,22 @@ public final class MainActivity extends Activity {
         row.addView(sw);box.addView(row);gap(box,14);
         TextView remaining=text(remaining(u.endMillis),21,u.endMillis>now?groupColor(u.group()):GREEN,true);countdowns.put(remaining,u);box.addView(remaining);gap(box,10);
         ProgressTrack track=new ProgressTrack(this,u,groupColor(u.group()));progressViews.add(track);box.addView(track,new LinearLayout.LayoutParams(-1,dp(7)));gap(box,8);
-        box.addView(text("同步后等待进度  ·  "+format(u.endMillis)+" 预计完成",10,MUTED,false));content.addView(box);gap(content,10);
+        box.addView(text("同步后等待进度  ·  "+format(u.endMillis)+" 预计完成",10,MUTED,false));box.setOnClickListener(view->upgradeDetails(u));content.addView(box);gap(content,10);
     }
     private void settingsPage() {
         illustratedHeading("让铃铛准时响起","准备好提醒，再安心离开村庄。",GameArt.BELL);
         LinearLayout master=card(); Switch enabled=new Switch(this); enabled.setText("升级完成提醒"); enabled.setTextColor(TEXT);enabled.setTextSize(18);enabled.setChecked(state.enabled);
         enabled.setOnCheckedChangeListener((b,c)->{State fresh=new State(this);fresh.enabled=c;if(!fresh.save())toast("保存失败，请重试。");Reminders.schedule(this);render();});
         master.addView(enabled);gap(master,8);master.addView(text("可在升级列表中单独关闭某一项。",13,MUTED,false));content.addView(master);gap(content,12);
+        LinearLayout comfort=card();comfort.addView(text("按你的作息提醒",18,TEXT,true));gap(comfort,10);
+        comfort.addView(button(state.advanceMinutes==0?"提前提醒：未开启":"提前 "+state.advanceMinutes+" 分钟提醒",false,()->{
+            String[] labels={"仅到点提醒","提前 5 分钟","提前 15 分钟","提前 30 分钟","提前 60 分钟"};int[] minutes={0,5,15,30,60};
+            new AlertDialog.Builder(this).setTitle("提前多久提醒？").setItems(labels,(d,w)->{State fresh=new State(this);fresh.advanceMinutes=minutes[w];saveReminderOptions(fresh);}).show();
+        }));gap(comfort,10);
+        Switch quiet=new Switch(this);quiet.setText("夜间免打扰");quiet.setTextSize(16);quiet.setTextColor(TEXT);quiet.setChecked(state.quiet);quiet.setOnCheckedChangeListener((b,on)->{State fresh=new State(this);fresh.quiet=on;saveReminderOptions(fresh);});comfort.addView(quiet);gap(comfort,8);
+        LinearLayout hours=new LinearLayout(this);hours.addView(button("从 "+clockLabel(state.quietStart),false,()->quietTime(true)),new LinearLayout.LayoutParams(0,-2,1));hours.addView(button("到 "+clockLabel(state.quietEnd),false,()->quietTime(false)),new LinearLayout.LayoutParams(0,-2,1));comfort.addView(hours);gap(comfort,8);
+        comfort.addView(text("免打扰时段内的提醒会延后到结束时合并送达。开始与结束相同表示全天不限制。测试提醒不受此设置影响。",12,MUTED,false));content.addView(comfort);gap(content,12);
+        LinearLayout widget=card();widget.addView(text("把升级放到桌面",18,TEXT,true));gap(widget,8);widget.addView(text("直接查看最近升级的预计完成时间，并一键打开同步。同步数据、收到升级提醒或系统定期刷新时更新。",12,MUTED,false));gap(widget,10);widget.addView(button("添加桌面小组件",false,this::pinWidget));content.addView(widget);gap(content,12);
         permissionCard("1. 通知权限",Reminders.allowed(this)?"已开启":"尚未开启","允许铃铛在升级预计完成时通知你。",this::notificationPermission);
         permissionCard("2. 准时提醒",Reminders.exact(this)?"已开启":"普通提醒，可能延迟","开启「闹钟和提醒」权限，尽量按预计时间送达。",()->{
             if(Build.VERSION.SDK_INT>=31) open(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:"+getPackageName())));
@@ -184,12 +204,12 @@ public final class MainActivity extends Activity {
         step("04","遇到特殊加速","包含活动加速或自动助手的快照暂不安排到点提醒；加速结束后重新导出。冷却时间不会被误认为加速。");
         LinearLayout privacy=card();privacy.addView(text("你的村庄，留在你的手机",18,TEXT,true));gap(privacy,10);
         privacy.addView(text("不需要游戏密码，不上传数据，没有网络权限。不使用后台剪贴板监听。仅在你点击粘贴、选择文件或分享时读取数据。",14,MUTED,false));
-        gap(privacy,16);privacy.addView(text("村庄铃铛 0.2.0 · 非官方工具\n时间为预测值，请以游戏内实际状态为准。",12,MUTED,false));content.addView(privacy);gap(content,12);
+        gap(privacy,16);privacy.addView(text("村庄铃铛 0.3.0 · 非官方工具\n游戏图片来自 ClashKing，© Supercell。本内容非官方且未经 Supercell 认可。时间为预测值，请以游戏内实际状态为准。",12,MUTED,false));gap(privacy,10);privacy.addView(button("素材来源与粉丝内容政策",false,()->new AlertDialog.Builder(this).setTitle("游戏素材说明").setMessage("图源：github.com/ClashKingInc/ClashKingAssets\n建筑按导出等级匹配，角色使用常规图标，不代表皮肤。国服外观可能存在差异。图片随安装包离线提供。\n\n本内容非官方且未经 Supercell 认可。政策：supercell.com/en/fan-content-policy/").setNeutralButton("许可全文",(d,w)->assetLicense()).setPositiveButton("知道了",null).show()));content.addView(privacy);gap(content,12);
         if(state.village!=null) content.addView(button("清除本机村庄数据",false,()->new AlertDialog.Builder(this).setTitle("清除村庄数据？")
             .setMessage("删除本机保存的导出数据，并取消全部升级提醒。")
             .setNegativeButton("保留",null).setPositiveButton("清除",(d,w)->{
                 Reminders.cancel(this);State s=new State(this);s.village=null;s.muted.clear();s.delivered.clear();s.save();
-                getSystemService(NotificationManager.class).cancel(Reminders.NOTIFICATION_ID);demo=null;page=0;render();
+                getSystemService(NotificationManager.class).cancel(Reminders.NOTIFICATION_ID);VillageWidget.updateAll(this);demo=null;page=0;render();
             }).show()));
     }
     private void permissionCard(String title,String status,String explanation,Runnable action) {
@@ -251,6 +271,7 @@ public final class MainActivity extends Activity {
         int active=0;for(Village.Upgrade u:v.upgrades)if(u.endMillis>System.currentTimeMillis())active++;
         String message="村庄 "+v.tag+"\n导出于 "+format(v.timestamp*1000L)+"\n\n识别到 "+v.upgrades.size()+" 项升级，"+active+" 项尚未到预计完成时间。";
         if(existing.village!=null)message+="\n\n本次导入将替换当前村庄的任务和提醒，单项提醒开关会重置。";
+        if(existing.village!=null)message+="\n上次快照："+existing.village.upgrades.size()+" 项记录；本次："+v.upgrades.size()+" 项。\n按当前时间计算，进行中："+Dashboard.active(existing.village,"全部",System.currentTimeMillis())+" → "+active+" 项。";
         for(String warning:v.warnings)message+="\n\n"+warning;
         new AlertDialog.Builder(this).setTitle("确认同步内容").setMessage(message).setNegativeButton("取消",null).setPositiveButton("同步",(d,w)->{
             State latest=new State(this);latest.replace(v);
@@ -263,7 +284,7 @@ public final class MainActivity extends Activity {
         LinearLayout row=card();row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);row.setBackground(outline(0xffe9eddc,0xffdbe2ce,20));
         LinearLayout copy=column();copy.addView(text(title,24,TEXT,true));gap(copy,7);copy.addView(text(subtitle,13,MUTED,false));row.addView(copy,new LinearLayout.LayoutParams(0,-2,1));row.addView(new GameArt(this,kind),new LinearLayout.LayoutParams(dp(64),dp(74)));content.addView(row);gap(content,18);
     }
-    private void metric(LinearLayout row,String value,String title){LinearLayout c=column();c.setGravity(Gravity.CENTER);TextView number=text(value,21,TEXT,true);number.setGravity(Gravity.CENTER);c.addView(number);TextView caption=text(title,10,MUTED,false);caption.setGravity(Gravity.CENTER);c.addView(caption);row.addView(c,new LinearLayout.LayoutParams(0,-2,1));}
+    private void metric(LinearLayout row,String value,String title){LinearLayout c=column();c.setGravity(Gravity.CENTER);TextView number=text(value,21,TEXT,true);number.setGravity(Gravity.CENTER);number.setMaxLines(1);number.setAutoSizeTextTypeUniformWithConfiguration(12,21,1,android.util.TypedValue.COMPLEX_UNIT_SP);c.addView(number);TextView caption=text(title,10,MUTED,false);caption.setGravity(Gravity.CENTER);c.addView(caption);row.addView(c,new LinearLayout.LayoutParams(0,-2,1));}
     private void section(String title,String sub){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.addView(text(title,18,TEXT,true),new LinearLayout.LayoutParams(0,-2,1));row.addView(text(sub,10,MUTED,false));content.addView(row);gap(content,10);}
     private void weeklyChart(Village v,long now){
         LinearLayout chart=card();chart.addView(text("未来七日 · 完成节奏",17,TEXT,true));gap(chart,4);chart.addView(text("每日预计完成的升级数量",11,MUTED,false));gap(chart,14);
@@ -280,9 +301,19 @@ public final class MainActivity extends Activity {
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
         TextView time=text(new SimpleDateFormat("HH:mm",Locale.CHINA).format(new Date(u.endMillis)),13,MUTED,true);row.addView(time,new LinearLayout.LayoutParams(dp(52),-2));
         LinearLayout card=card();card.setOrientation(LinearLayout.HORIZONTAL);card.setGravity(Gravity.CENTER_VERTICAL);card.setPadding(dp(10),dp(10),dp(10),dp(10));
-        card.addView(new GameArt(this,artKind(u)),new LinearLayout.LayoutParams(dp(42),dp(42)));LinearLayout label=column();label.setPadding(dp(8),0,0,0);label.addView(text(u.name,15,TEXT,true));TextView countdown=text(remaining(u.endMillis),12,groupColor(u.group()),false);countdowns.put(countdown,u);label.addView(countdown);card.addView(label,new LinearLayout.LayoutParams(0,-2,1));row.addView(card,new LinearLayout.LayoutParams(0,-2,1));
-        card.setOnClickListener(view->new AlertDialog.Builder(this).setTitle(u.name).setMessage(u.group()+" · 导出等级 "+u.level+"\n"+format(u.endMillis)+" 预计完成\n\n切换到任务卡片，可以设置单项提醒。").setPositiveButton("知道了",null).show());content.addView(row);gap(content,8);
+        card.addView(GameIcons.view(this,u,artKind(u)),new LinearLayout.LayoutParams(dp(55),dp(55)));LinearLayout label=column();label.setPadding(dp(8),0,0,0);label.addView(text(u.name,15,TEXT,true));TextView countdown=text(remaining(u.endMillis),12,groupColor(u.group()),false);countdowns.put(countdown,u);label.addView(countdown);card.addView(label,new LinearLayout.LayoutParams(0,-2,1));row.addView(card,new LinearLayout.LayoutParams(0,-2,1));
+        card.setOnClickListener(view->upgradeDetails(u));content.addView(row);gap(content,8);
     }
+    private void refreshTasks(){int y=scroll.getScrollY();render();scroll.post(()->scroll.scrollTo(0,y));}
+    private void assetLicense(){
+        try(InputStream in=getResources().openRawResource(R.raw.clashking_license)){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);ScrollView sc=new ScrollView(this);TextView copy=text(out.toString("UTF-8"),12,TEXT,false);copy.setPadding(dp(20),dp(12),dp(20),dp(12));copy.setTextIsSelectable(true);sc.addView(copy);new AlertDialog.Builder(this).setTitle("ClashKing 素材仓库许可").setView(sc).setPositiveButton("关闭",null).show();}catch(IOException e){toast("许可文件无法读取。");}
+    }
+    private void searchDialog(){EditText input=new EditText(this);input.setSingleLine();input.setHint("输入名称、类别或 ID");input.setText(query);input.setPadding(dp(20),dp(12),dp(20),dp(12));new AlertDialog.Builder(this).setTitle("搜索升级项目").setView(input).setNegativeButton("取消",null).setPositiveButton("搜索",(d,w)->{query=input.getText().toString().trim();refreshTasks();}).show();}
+    private void upgradeDetails(Village.Upgrade u){LinearLayout box=column();box.setPadding(dp(22),dp(12),dp(22),dp(8));box.addView(GameIcons.view(this,u,artKind(u)),new LinearLayout.LayoutParams(-1,dp(140)));gap(box,12);box.addView(text(u.group()+" · 导出等级 "+u.level+"\n"+format(u.endMillis)+" 预计完成\n项目 ID："+u.dataId,14,TEXT,false));gap(box,10);box.addView(text(GameIcons.bitmap(this,u)==null?"该项目或等级的图片尚未收录，使用通用图标。":"游戏图片 © Supercell · 图源 ClashKing\n建筑按导出等级显示；角色图标不代表皮肤。",12,MUTED,false));new AlertDialog.Builder(this).setTitle(u.name).setView(box).setPositiveButton("知道了",null).show();}
+    private static String clockLabel(int minutes){return String.format(Locale.CHINA,"%02d:%02d",minutes/60,minutes%60);}
+    private void quietTime(boolean start){int value=start?state.quietStart:state.quietEnd;new TimePickerDialog(this,(picker,h,m)->{State fresh=new State(this);if(start)fresh.quietStart=h*60+m;else fresh.quietEnd=h*60+m;saveReminderOptions(fresh);},value/60,value%60,true).show();}
+    private void saveReminderOptions(State fresh){if(!fresh.save())toast("保存失败，请重试。");String problem=Reminders.schedule(this);if(!problem.isEmpty())toast(problem);refreshTasks();}
+    private void pinWidget(){android.appwidget.AppWidgetManager manager=getSystemService(android.appwidget.AppWidgetManager.class);if(manager.isRequestPinAppWidgetSupported())manager.requestPinAppWidget(new ComponentName(this,VillageWidget.class),null,null);else toast("请长按桌面空白处 → 小组件 → 村庄升级看板。");}
     private int artKind(Village.Upgrade u){if(u.dataId==1000008||u.dataId==1000041||u.dataId==1000057)return GameArt.CANNON;if(u.category.startsWith("units")||u.category.equals("siege_machines"))return GameArt.TROOP;if(u.dataId==1000007||u.dataId==1000046)return GameArt.RESEARCH;if(u.dataId==1000068)return GameArt.PET;if(u.category.startsWith("heroes")||u.category.equals("guardians"))return GameArt.CROWN;switch(u.group()){case "研究":return GameArt.RESEARCH;case "战宠":return GameArt.PET;case "夜世界":return GameArt.NIGHT;default:return GameArt.BUILDING;}}
     private int groupColor(String g){switch(g){case "研究":return 0xff806b9d;case "战宠":return 0xff64835c;case "夜世界":return 0xff587798;default:return GOLD;}}
     private int tint(String g){switch(g){case "研究":return 0xffefe6f4;case "战宠":return 0xffe8efde;case "夜世界":return 0xffe6edf3;default:return 0xfff4ead4;}}

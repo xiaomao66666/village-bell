@@ -4,6 +4,14 @@ import java.util.*;
 
 /** Presentation calculations: never infer true upgrade-start time from an export. */
 public final class Dashboard {
+    public static boolean matches(Village.Upgrade u,String group,String query,boolean hideCompleted,boolean todayOnly,long now,TimeZone zone){
+        if(!group.equals("全部")&&!u.group().equals(group))return false;
+        if(hideCompleted&&u.endMillis<=now)return false;
+        String q=query.trim().toLowerCase(Locale.ROOT);
+        if(!q.isEmpty()&&!(u.name+" "+u.group()+" "+u.dataId).toLowerCase(Locale.ROOT).contains(q))return false;
+        if(todayOnly){Calendar a=Calendar.getInstance(zone),b=Calendar.getInstance(zone);a.setTimeInMillis(now);b.setTimeInMillis(u.endMillis);if(a.get(Calendar.YEAR)!=b.get(Calendar.YEAR)||a.get(Calendar.DAY_OF_YEAR)!=b.get(Calendar.DAY_OF_YEAR))return false;}
+        return true;
+    }
     public static float waitingProgress(Village.Upgrade u,long now) {
         if(u.seconds<=0)return 1f;
         long snapshot=u.endMillis-u.seconds*1000L;
